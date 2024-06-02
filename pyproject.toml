@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "snakesheets"
+version = "0.0.1"
+description = "Spreadsheets, but with Python"
+authors = ["bumbledbees <sam@bombus.cloud>"]
+readme = "README.md"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/bumbledbees/snakesheets"
+packages = [
+    { include = "snakesheets", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.9, <3.13"
+pyside6 = "~6.7"
+
+[tool.poetry.scripts]
+snakesheets = "snakesheets.cmd.snakesheets:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
