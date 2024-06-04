@@ -14,8 +14,33 @@ packages = [
 python = "^3.9, <3.13"
 pyside6 = "~6.7"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "~8.2"
+flake8 = "~7.0"
+mypy = "~1.10"
+isort = "~5.13"
+pylint = "~3.2"
+pre-commit = "~3.7"
+
 [tool.poetry.scripts]
 snakesheets = "snakesheets.cmd.snakesheets:main"
+
+[tool.mypy]
+disable_error_code = "attr-defined"
+
+[tool.pylint]
+argument-naming-style = "camelCase"
+attr-naming-style = "camelCase"
+function-naming-style = "camelCase"
+method-naming-style = "camelCase"
+variable-naming-style = "camelCase"
+
+disable = """missing-class-docstring,\
+             missing-function-docstring,\
+             missing-module-docstring,\
+             no-name-in-module,\
+             too-many-branches,\
+             too-many-locals"""
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

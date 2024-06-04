@@ -12,9 +12,9 @@ class SpreadsheetException(Exception):
 
 class InvalidInput(SpreadsheetException):
     def __init__(self, message: str = 'Invalid input value',
-                 value: Any = None):
+                 value: Any = None, valueName: str = 'input'):
         super().__init__(message)
         self.value = value
+        self.valueName = valueName
         if value is not None:
-            self.message += f': {value}'
-
+            self.message += f' ({valueName}: {value})'

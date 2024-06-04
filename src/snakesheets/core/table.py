@@ -1,29 +1,71 @@
-from functools import cache
+from copy import deepcopy
+from functools import partial, singledispatchmethod
 from itertools import product
-from typing import Any, Optional, Self, Tuple
+from typing import Any, Optional
 
-from snakesheets.core import exception
+from snakesheets.core.exception import InvalidInput
+from snakesheets.core.utils import indexToCoords, padRow
 
 
 class Table:
     def __init__(self, data: Optional[list[list[Any]]] = None,
-                 rows: Optional[int] = None, columns: Optional[int] = None):
-        self.data = []
-        num_columns = 0
-        if data:
-            for idx, row in enumerate(data):
-                count = len(row)
-                if count < num_columns:
-                    row = padRow(row, num_columns)
-                elif count > num_columns:
-                    num_columns = count
-                    for subidx in range(0, idx):
-                        self.data[idx] = padRow(self.data[idx], num_columns)
-                self.data.append(row)
-        elif rows and columns:
-            self.data = ([None] * columns) * rows
+                 dimensions: Optional[tuple[int, int]] = None,
+                 defaultValue: Any = None):
+        if data is not None:
+            self.data: list = []
+            columns = 0
 
-    def __eq__(self, table: Self) -> bool:
+            if not isinstance(data, list):
+                raise InvalidInput('data must be a list',
+                                   value=data, valueName='data')
+            if len(data) == 0:
+                raise InvalidInput('data must have at least 1 row',
+                                   value=data, valueName='data')
+            for idx, row in enumerate(data):
+                if not isinstance(row, list):
+                    raise InvalidInput('rows must be lists',
+                                       value=row, valueName=f'row {idx}')
+                count = len(row)
+                newRow = deepcopy(row)
+
+                if count < columns:
+                    newRow = padRow(newRow, columns, defaultValue)
+                elif count > columns:
+                    columns = count
+                    for subidx in range(idx):
+                        self.data[subidx] = padRow(self.data[subidx],
+                                                   columns, defaultValue)
+                self.data.append(newRow)
+            if columns == 0:
+                raise InvalidInput('data must have at least 1 column',
+                                   value=data, valueName='data')
+        elif dimensions is not None:
+            errorStr = 'dimensions must be a tuple in the form (rows, columns)'
+            if not isinstance(dimensions, tuple):
+                raise InvalidInput(errorStr, value=dimensions)
+            if len(dimensions) != 2:
+                raise InvalidInput(errorStr, value=dimensions)
+
+            rows, columns = dimensions
+            for varName, varValue in ('rows', rows), ('columns', columns):
+                invalidVar = partial(InvalidInput,
+                                     value=varValue, valueName=varName)
+                if not isinstance(varValue, int):
+                    raise invalidVar(f'number of {varName} must be an integer')
+                if varValue < 0:
+                    raise invalidVar('table cannot have a negative number of '
+                                     f'{varName}')
+                if varValue == 0:
+                    raise invalidVar('table must have at least 1 '
+                                     f'{varName[:-1]}')  # trim trailing 's'
+            self.data = [[defaultValue] * columns] * rows
+        else:
+            self.data = [[defaultValue]]
+
+    def __eq__(self, table: object) -> bool:
+        if not isinstance(table, Table):
+            raise InvalidInput('tables can only be compared to other tables',
+                               value=table)
         if self.rows != table.rows or self.columns != table.columns:
             return False
         for x, y in product(range(self.columns), range(self.rows)):
@@ -31,74 +73,37 @@ class Table:
                 return False
         return True
 
-    def __getitem__(self, idx: str | Tuple[int, int]) -> Any:
-        if isinstance(idx, str):  # excel-like cell reference
-            col, row = Table.indexToCoords(idx)
-            return self.data[row][col]
-        elif isinstance(idx, tuple):  # x, y coordinates
-            return self.data[idx[1]][idx[0]]
-        else:
-            raise ValueError(f'Invalid index {idx}')
+    def __getitem__(self, idx: str | tuple[int, int]) -> Any:
+        col, row = self._indexToCoords(idx)
+        return self.data[row][col]
 
-    def __setitem__(self, idx: str | Tuple[int, int], value: Any):
-        if isinstance(idx, str):  # excel-like cell reference
-            col, row = Table.indexToCoords(idx)
-            self.data[row][col] = value
-        elif isinstance(idx, tuple):  # x, y coordinates
-            self.data[idx[1]][idx[0]] = value
-        else:
-            raise ValueError(f'Invalid index {idx}')
+    def __setitem__(self, idx: str | tuple[int, int], value: Any):
+        col, row = self._indexToCoords(idx)
+        self.data[row][col] = value
 
-    @cache
-    @staticmethod
-    def alphaToInt(value: str) -> int:
-        INT_A = ord('A')
-        result = 0
+    @singledispatchmethod
+    def _indexToCoords(self, idx) -> tuple[int, int]:
+        raise InvalidInput('invalid index', value=idx, valueName='index')
 
-        for idx, n in enumerate(reversed(value.upper())):
-            n = ord(n) - INT_A + 1
-            if n < 1 or n > 26:
-                raise InvalidInput(value=value)
-            result += n * (26 ** idx)
+    @_indexToCoords.register
+    def _(self, idx: str) -> tuple[int, int]:
+        return indexToCoords(idx)
 
-        return result - 1
+    @_indexToCoords.register
+    def _(self, idx: tuple) -> tuple[int, int]:
+        if len(idx) != 2:
+            raise InvalidInput('index must be a tuple in the form '
+                               '(rows, columns)',
+                               value=idx, valueName='index')
 
-    @cache
-    @staticmethod
-    def intToAlpha(value: int) -> str:
-        if value < 0:
-            raise InvalidInput(message='Index cannot be negative', value=value)
-
-        INT_A = ord('A')
-        result = ''
-        value += 1
-
-        while value > 0:
-            result += chr((value - 1) % 26 + INT_A)
-            value = (value - 1) // 26
-
-        # if value is 0, result will be '' but it should be 'A'
-        return result[::-1] or 'A'
-
-    @cache
-    @staticmethod
-    def indexToCoords(idx: str) -> Tuple[int, int]:
-        col = None
-        row = None
-        for ch in idx:
-            if ch.isalpha():
-                if row is not None:  # letter after number
-                    raise ValueError(f'Parse error on input {idx}')
-                col = ch if col is None else col + ch
-            elif ch.isdigit():
-                if col is None:  # number before letter 
-                    raise ValueError(f'Parse error on input {idx}')
-                row = ch if row is None else row + ch
-            elif ch != '_':  # underscores are allowed but get ignored
-                raise ValueError(f'Illegal character {ch} in index {idx}')
-        if col is None or row is None:
-            raise ValueError(f'Invalid index {idx}')
-        return (Table.alphaToInt(col), int(row))
+        for varName, varValue in ('x', idx[0]), ('y', idx[1]):
+            if not isinstance(varValue, int):
+                raise InvalidInput(f'{varName} value must be an integer',
+                                   value=varValue, valueName=varName)
+            if varValue < 0:
+                raise InvalidInput(f'{varName} value cannot be negative',
+                                   value=varValue, valueName=varName)
+        return idx
 
     @property
     def rows(self):
@@ -108,12 +113,4 @@ class Table:
     def columns(self):
         if self.rows:
             return len(self.data[0])
-        else:
-            return 0
-
-    def padRow(self, row: list[Any], length: int,
-               value: Any = None) -> list[Any]:
-        if len(row) < length:
-            row += [value] * (length - len(row))
-        return row
-
+        return 0
